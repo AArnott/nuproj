@@ -3,7 +3,7 @@ syntax: glob
 # User-specific files
 *.user
 *.suo
-/src/.vs
+src/.vs
 
 # Build results
 bin

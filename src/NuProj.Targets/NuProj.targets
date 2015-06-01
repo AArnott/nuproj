@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="12.0" DefaultTargets="Build" TreatAsLocalProperty="OutDir;IntermediateOutputPath" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <Import Project="$(CustomBeforeNuProjTargets)" Condition="'$(CustomBeforeNuProjTargets)' != '' and Exists('$(CustomBeforeNuProjTargets)')"/>
 
@@ -42,6 +42,34 @@
     <DefaultContentType>Content</DefaultContentType>
   </PropertyGroup>
 
+  <!-- Set output and intermmediate output properties. -->
+  <PropertyGroup>
+    <OutputPath Condition="'$(OutputPath)' != '' and !HasTrailingSlash('$(OutputPath)')">$(OutputPath)\</OutputPath>
+    <OutputPath Condition="'$(OutputPath)'==''">bin\$(Configuration)\</OutputPath>
+
+    <OutDirWasSpecified Condition=" '$(OutDir)'!='' and '$(OutDirWasSpecified)'=='' ">true</OutDirWasSpecified>
+    <OutDir Condition="'$(OutDir)' == ''">$(OutputPath)</OutDir>
+    <OutDir Condition="'$(OutDir)' != '' and !HasTrailingSlash('$(OutDir)')">$(OutDir)\</OutDir>
+
+    <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)'=='' ">obj\</BaseIntermediateOutputPath>
+    <BaseIntermediateOutputPath Condition="!HasTrailingSlash('$(BaseIntermediateOutputPath)')">$(BaseIntermediateOutputPath)\</BaseIntermediateOutputPath>
+
+    <IntermediateOutputPathWasSpecified Condition=" '$(IntermediateOutputPath)'!='' and '$(IntermediateOutputPathWasSpecified)'=='' ">true</IntermediateOutputPathWasSpecified>
+    <IntermediateOutputPath Condition="$(IntermediateOutputPath) == ''">$(BaseIntermediateOutputPath)$(Configuration)\</IntermediateOutputPath>
+    <IntermediateOutputPath Condition="!HasTrailingSlash('$(IntermediateOutputPath)')">$(IntermediateOutputPath)\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <!-- For projects that want a per-project output directory, update OutDir and IntermediateOutputPath to include the project name. -->
+  <PropertyGroup>
+    <ProjectName Condition=" '$(ProjectName)' == '' ">$(MSBuildProjectName)</ProjectName>
+    <OutDir Condition="'$(OutDir)' != '' and '$(OutDirWasSpecified)' == 'true' and '$(GenerateProjectSpecificOutputFolder)' == 'true'">$(OutDir)$(ProjectName)\</OutDir>
+    <IntermediateOutputPath Condition="'$(IntermediateOutputPath)' != '' and '$(IntermediateOutputPathWasSpecified)' == 'true' and '$(GenerateProjectSpecificOutputFolder)' == 'true'">$(IntermediateOutputPath)$(ProjectName)\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetDir Condition="'$(OutDir)' != ''">$([MSBuild]::Escape($([System.IO.Path]::GetFullPath(`$([System.IO.Path]::Combine(`$(MSBuildProjectDirectory)`, `$(OutDir)`))`))))</TargetDir>
+  </PropertyGroup>
+
   <!--
       NUSPEC PATH
   -->
@@ -61,10 +89,10 @@
   -->
 
   <Target Name="EstablishNuGetPaths" DependsOnTargets="$(VersionDependsOn)">
-    <PropertyGroup>
-      <NuGetOutputPath>$([System.IO.Path]::GetFullPath('$(OutDir)$(Id).$(Version).nupkg'))</NuGetOutputPath>
-      <NuGetSymbolsOutputPath>$(OutDir)$(Id).$(Version).symbols.nupkg</NuGetSymbolsOutputPath>
-    </PropertyGroup>
+  <PropertyGroup>
+    <NuGetOutputPath>$(TargetDir)$(Id).$(Version).nupkg</NuGetOutputPath>
+    <NuGetSymbolsOutputPath>$(TargetDir)$(Id).$(Version).symbols.nupkg</NuGetSymbolsOutputPath>
+  </PropertyGroup>
   </Target>
 
   <!--
@@ -139,9 +167,28 @@
   <PropertyGroup>
     <ProjectProperties>
       Configuration=$(Configuration);
-      Platform=$(Platform);
+      Platform=$(Platform)
+    </ProjectProperties>
+
+    <!-- Use 'Microsoft.Common.NuProj.targets' if it's in same directory as this script. 
+         For example when using NuProj NuGet package instead of VS integration.-->
+    <ProjectProperties Condition="Exists('$(MSBuildThisFileDirectory)Microsoft.Common.NuProj.targets') And !$(CustomAfterMicrosoftCommonTargets.Contains('Microsoft.Common.NuProj.targets'))">
+      $(ProjectProperties);CustomAfterMicrosoftCommonTargets=$(MSBuildThisFileDirectory)Microsoft.Common.NuProj.targets
     </ProjectProperties>
   </PropertyGroup>
+
+  <!--
+      ITEM DEFINITIONS
+      
+      Defines default metadata for our items.
+  -->
+  
+  <ItemDefinitionGroup>
+    <ProjectReference>
+      <PackageDirectory>Lib</PackageDirectory>
+      <TargetFramework></TargetFramework>
+    </ProjectReference>
+  </ItemDefinitionGroup>
 
   <!--
       CUSTOM TASKS
@@ -155,6 +202,20 @@
   <UsingTask AssemblyFile="$(NuProjTasksPath)" TaskName="AssignSourceTargetPaths" />
 
   <!--
+    ============================================================
+                                        PrepareForBuild
+
+    Prepare the prerequisites for building.
+    ============================================================
+    -->
+    <PropertyGroup>
+      <PrepareForBuildDependsOn>EstablishNuGetPaths</PrepareForBuildDependsOn>
+    </PropertyGroup>
+    <Target Name="PrepareForBuild"
+            DependsOnTargets="$(PrepareForBuildDependsOn)">
+    </Target>
+
+    <!--
     ===================================================================================================================
     _NuProjGetProjectClosure
     ===================================================================================================================
@@ -205,10 +266,9 @@
         <DependencyKind>Indirect</DependencyKind>
         <PackageDirectory>%(ProjectReference.PackageDirectory)</PackageDirectory>
       </_ProjectReferenceClosure>
-      <!-- Now add the direct references -->
-      <_ProjectReferenceClosure Include="%(ProjectReference.FullPath)">
+      <!-- Now add the direct references, preserving metadata -->
+      <_ProjectReferenceClosure Include="@(ProjectReference->'%(FullPath)')">
         <DependencyKind>Direct</DependencyKind>
-        <PackageDirectory>%(ProjectReference.PackageDirectory)</PackageDirectory>
       </_ProjectReferenceClosure>
     </ItemGroup>
 
@@ -297,7 +357,7 @@
         <!-- Ask for the output and all dependencies. -->
 
         <MSBuild Targets="$(ProjectOutputGroups)"
-                 Projects="%(_NonNuProjProjectReference.Identity)"
+                 Projects="@(_NonNuProjProjectReference)"
                  Properties="$(ProjectProperties)">
             <Output TaskParameter="TargetOutputs"
                     ItemName="_NonNuProjProjectOutput" />
@@ -319,7 +379,7 @@
              get the directory name. -->
 
         <MSBuild Targets="GetTargetPath"
-                 Projects="%(_NonNuProjProjectReference.Identity)"
+                 Projects="@(_NonNuProjProjectReference)"
                  Properties="$(ProjectProperties)">
             <Output TaskParameter="TargetOutputs"
                     PropertyName="_NonNuProjProjectTargetPath" />
@@ -333,6 +393,8 @@
              in the project's output folder. -->
 
         <ItemGroup>
+            <_FilteredNonNuProjProjectOutput Include="@(_NonNuProjProjectOutput->'$(_NonNuProjProjectTargetPath)%(Filename)%(Extension)')"
+                                             Condition=" Exists('$(_NonNuProjProjectTargetPath)%(_NonNuProjProjectOutput.Filename)%(_NonNuProjProjectOutput.Extension)') " />
             <_NonNuProjProjectOutput Remove="@(_NonNuProjProjectOutput)"
                                      Condition="!Exists('$(_NonNuProjProjectTargetPath)%(_NonNuProjProjectOutput.Filename)%(_NonNuProjProjectOutput.Extension)') "/>
         </ItemGroup>
@@ -341,7 +403,7 @@
              NuGet package we need need to know the target framework moniker. -->
 
         <MSBuild Targets="GetTargetFrameworkMoniker"
-                 Projects="%(_NonNuProjProjectReference.Identity)"
+                 Projects="@(_NonNuProjProjectReference)"
                  Properties="$(ProjectProperties)">
           
             <Output TaskParameter="TargetOutputs"
@@ -350,8 +412,8 @@
 
         <!-- In order to add custom metadata, we need to create a new item list -->
 
-        <CreateItem Include="@(_NonNuProjProjectOutput)"
-                    AdditionalMetadata="TargetFrameworkMoniker=$(_NonNuProjProjectTargetFrameworkMoniker);PackageDirectory=%(_NonNuProjProjectReference.PackageDirectory)">
+        <CreateItem Include="@(_FilteredNonNuProjProjectOutput)"
+                    AdditionalMetadata="TargetFrameworkMoniker=$(_NonNuProjProjectTargetFrameworkMoniker)">
             <Output TaskParameter="Include"
                     ItemName="_NonNuProjProjectOutputWithTargetFrameworkMoniker"/>
         </CreateItem>
@@ -417,7 +479,7 @@
                           Condition="'%(File.TargetPath)' == 'lib' OR
                                      $([System.String]::Copy('%(File.TargetPath)').ToLower().StartsWith('lib\')) OR
                                      $([System.String]::Copy('%(File.TargetPath)').ToLower().StartsWith('lib/'))">
-        <PackageDirectory>Library</PackageDirectory>
+        <PackageDirectory>Lib</PackageDirectory>
       </_FileWithIsLibrary>
       <_FileWithIsLibrary Include="@(File)"
                           Condition="'%(File.TargetPath)' != 'lib' AND
@@ -518,11 +580,12 @@
                   $(NuSpecPath);
                   @(File)"
           Outputs="$(NuGetOutputPath)"
-          DependsOnTargets="GenerateNuSpec;EstablishNuGetPaths">
+          DependsOnTargets="GenerateNuSpec;PrepareForBuild">
     <MakeDir Directories="$(OutDir)"
              Condition="!Exists('$(OutDir)')" />
     <NuGetPack OutputDirectory="$(OutDir)"
                NoPackageAnalysis="$(NoPackageAnalysis)"
+               NoDefaultExcludes="$(NoDefaultExcludes)"
                Symbols="$(GenerateSymbolPackage)"
                ToolPath="$(NuGetToolPath)"
                ToolExe="$(NuGetToolExe)"
@@ -551,7 +614,7 @@
              Depending on referenced projects, single library can come from multiple locations,
              e.g target and intermediate output directories. -->
         <_RawLibraryTargetPath Include="@(File->'%(TargetPath)\%(FileName)%(Extension)')"
-                         Condition="'%(File.PackageDirectory)' == 'Library'">
+                         Condition="'%(File.PackageDirectory)' == 'Lib'">
             <OriginalItemSpec>%(File.Identity)</OriginalItemSpec>
         </_RawLibraryTargetPath>
       </ItemGroup>
@@ -579,7 +642,7 @@
         <_FileTargetPath Include="@(_FilteredLibraryTargetPath->'%(FileName)%(Extension)')" />
 
         <_FileTargetPath Include="@(File->'::KEEP::')"
-                         Condition="'%(File.PackageDirectory)' != 'Library'">
+                         Condition="'%(File.PackageDirectory)' != 'Lib'">
             <OriginalItemSpec>%(File.Identity)</OriginalItemSpec>
         </_FileTargetPath>
 
@@ -722,7 +785,7 @@
       
       <!-- Get files that are library and have assigned target framework (so no debug symbols files). -->
       <_DependencyFile Include="@(File)" 
-                       Condition="'%(File.PackageDirectory)' == 'Library' 
+                       Condition="'%(File.PackageDirectory)' == 'Lib' 
                          and '%(File.TargetFramework)' != '' 
                          and '%(File.NuProjPackageId)' == '%(NuProjDependency.Identity)'"/>
       
@@ -803,23 +866,14 @@
     =================================================================================================================== -->
 
   <Target Name="GetNuGetPackageDependencies"
-          Inputs="%(_ProjectReferenceClosure.DependencyKind)"
-          Outputs="fake"
           Returns="@(NuGetDependency)">
 
       <!-- Read each project's packages.config file. -->
-      <ReadPackagesConfig ProjectPath="%(_ProjectReferenceClosure.FullPath)"
-                          Condition="'%(_ProjectReferenceClosure.FullPath)' != ''">
+      <ReadPackagesConfig Projects="@(_ProjectReferenceClosure)"
+                          Condition="'%(PackageDirectory)' == 'Lib'">
         <Output TaskParameter="PackageReferences"
                 ItemName="_PackageReference" />
       </ReadPackagesConfig>
-
-      <!-- Unfortunately, we can't use %(_ProjectReferenceClosure.DependencyKind) to
-           define the metadata in the declaration of NuGetDependency.DependencyKind.
-           So we simply capture the current batch in a property. -->
-      <PropertyGroup>
-        <_ProjectReferenceClosureDependencyKind>%(_ProjectReferenceClosure.DependencyKind)</_ProjectReferenceClosureDependencyKind>
-      </PropertyGroup>
 
       <!-- Turn all dependencies into NuGetDependency items with appropriate metadata. -->
       <ItemGroup Condition="'@(_PackageReference)' != ''">
@@ -827,7 +881,6 @@
                          Condition="!%(IsDevelopmentDependency)"
                          RemoveMetadata="IsDevelopmentDependency;RequireReinstallation;VersionConstraint">
           <Version Condition="'%(_PackageReference.VersionConstraint)' != ''">%(_PackageReference.VersionConstraint)</Version>
-          <DependencyKind>$(_ProjectReferenceClosureDependencyKind)</DependencyKind>
         </NuGetDependency>
       </ItemGroup>
 
@@ -919,13 +972,21 @@
 
   </Target>
 
-  <Target Name="Build" DependsOnTargets="CreatePackage">
+  <Target Name="Build"
+          DependsOnTargets="CreatePackage" 
+          Returns="@(_NuGetOutputFile)">
     <Message Text="$(MSBuildProjectName) -> $(NuGetOutputPath)"
              Importance="high" />
+
+    <ItemGroup>
+      <_NuGetOutputFile Include="$(NuGetOutputPath)" />
+      <_NuGetOutputFile Include="$(NuGetSymbolsOutputPath)" Condition=" '$(GenerateSymbolPackage)' == 'true' " />
+    </ItemGroup>
   </Target>
 
-  <Target Name="Rebuild" DependsOnTargets="Clean;Build" />
-
+  <Target Name="Rebuild"
+          DependsOnTargets="Clean;Build"
+          Returns="@(_NuGetOutputFile)" />
   <Import Project="$(CustomAfterNuProjTargets)" Condition="'$(CustomAfterNuProjTargets)' != '' and Exists('$(CustomAfterNuProjTargets)')"/>
 
 </Project>

@@ -119,9 +119,9 @@ directory by using `Link` metadata to specify file path in output package.
 ## Using Project References
 
 You can reference other projects to automatically include their output in 
-package. By default the project is considered to be a `Library` and will be
+package. By default the project is considered to be a library and will be
 put into `lib` folder. The package directory can be controlled by using 
-`PackageDirectory` metadata. Recognized values are: `Library`, `Tools`, `Build`,
+`PackageDirectory` metadata. Recognized values are: `Lib`, `Tools`, `Build`,
 `Content` and `Root`. 
 
 ```xml
@@ -140,7 +140,9 @@ put into `lib` folder. The package directory can be controlled by using
 ```
 
 You can also reference other NuProj projects to generate package dependencies.
-Dependency `Library` content will be removed from `Library` content of package.
+Content of `Lib` directory of `Dependency` package will be removed from `Lib` 
+directory of dependent package. `Dependency` package will be added as a NuGet 
+dependency.
 
 ```xml
 <ItemGroup>
@@ -165,7 +167,7 @@ Please note that the reference item doesn't support the `TargetFramework`
 metadata. Instead, NuGet will only add the references if the file is also
 packaged in the corresponding lib folder. If it's not the reference is simply
 ignored. In other words, the target framework is already controlled by the fact
-that the file might or might not be in the corr                 esponding lib folder.
+that the file might or might not be in the corresponding lib folder.
 
 ## Merging Nuspec Template
 
@@ -182,6 +184,6 @@ items will be added to files, framework assemblies, references or dependencies.
   <Authors>The World</Authors>
   <Owners>$(Authors)</Owners>
   <Description>Hello World</Description>
-  <NuSpecTemplate>HelloWorldTemplate.nupsec</NuSpecTemplate>
+  <NuSpecTemplate>HelloWorldTemplate.nuspec</NuSpecTemplate>
 </PropertyGroup>
 ```
